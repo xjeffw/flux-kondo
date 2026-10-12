@@ -94,3 +94,27 @@
         (is (empty? (run-findings cache-dir (io/file lib "relay" "builtins-extra.rly"))))
         (is (empty? (run-findings cache-dir (io/file lib "relay" "core.rly"))))
         (is (= expected (run-findings cache-dir app)))))))
+
+(deftest library-copies-test
+  (testing "a namespace that two files declare, as when two copies of a library
+  are read, keeps what the files that continue it with in-ns define, whichever
+  are read first"
+    (fs/with-temp-dir [dir {}]
+      (let [copies (mapv (fn [copy]
+                           (let [target (fs/file dir copy)]
+                             (fs/copy-tree lib target)
+                             target))
+                         ["one" "two"])
+            files (fn [name] (mapv #(str (io/file % "relay" name)) copies))
+            expected (map #(select-keys % [:row :col :message]) app-findings)]
+        (doseq [order [["builtins-extra.rly" "core.rly" "string.rly"]
+                       ["core.rly" "builtins-extra.rly" "string.rly"]
+                       ["core.rly" "string.rly" "builtins-extra.rly"]]]
+          (fs/with-temp-dir [cache-dir {}]
+            (clj-kondo/run! {:lint (concat (mapcat files order)
+                                           (files "builtins.rly")
+                                           (files "other-ns.rly"))
+                             :cache-dir (str cache-dir)
+                             :dependencies true
+                             :config [config]})
+            (is (= expected (run-findings cache-dir app)) (str order))))))))

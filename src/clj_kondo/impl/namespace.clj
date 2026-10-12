@@ -132,9 +132,13 @@
                                          (not (:synthetic-init prev))
                                          (:filename prev)
                                          (not= (:filename prev) new-filename))
-                                  (-> prev
-                                      (assoc :vars nil)
-                                      (dissoc :var-counts))
+                                  (if (:relay? prev)
+                                    ;; Relay: what other files define of the
+                                    ;; namespace with in-ns is not reset
+                                    (relay/forget-declared-vars prev)
+                                    (-> prev
+                                        (assoc :vars nil)
+                                        (dissoc :var-counts)))
                                   prev)]
                        (deep-merge prev ns))))
             path)))

@@ -272,6 +272,22 @@
 
 ;;;; namespaces defined in several files
 
+(defn forget-declared-vars
+  "The namespace map `ns` once an `ns` form declares it in a second file, as
+  when two copies of a library are read: without the vars of the first file,
+  which the second defines again, and with those of the files that continue
+  the namespace with `in-ns`. Such a file is one whose first namespace is
+  another one, and it can be read before the files that declare the namespace
+  or after them."
+  [ns]
+  (let [ns-name (:name ns)
+        continued (into {}
+                        (remove (fn [[_ var-info]] (= ns-name (:top-ns var-info))))
+                        (:vars ns))]
+    (-> ns
+        (assoc :vars (not-empty continued))
+        (update :var-counts select-keys (keys continued)))))
+
 (defn merge-file-contributions
   "A Relay namespace can be defined in several files: the generated declarations
   of the builtins continue namespaces that Lisp files define. Returns

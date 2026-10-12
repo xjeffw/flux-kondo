@@ -22,7 +22,11 @@ languages are linted as clj-kondo lints them.
   the file requires it or not, as Relay resolves it in any loaded namespace.
 - **Namespaces in several files.** A namespace can be continued in another file with `in-ns`,
   as the generated declarations of the builtins continue the namespaces that Lisp files define.
-  The cache keeps what each file contributes: linting one file replaces its part alone.
+  The cache keeps what each file contributes: linting one file replaces its part alone. A file
+  that continues a namespace is told from one that declares it by the first namespace it names,
+  so it begins with an `ns` form of its own. Files are read in any order, and a run can read
+  two files that declare one namespace, as two copies of a library do: the second replaces
+  what the first defined, and neither replaces what a continuing file did.
 - **Macros that define vars.** A macro whose metadata has `:definition-symbol` defines, where
   it is called at the top level of a file, the var its argument at that path names:
   `{:path [0] :type :variable}` for the first argument, `{:path [0 1] :type :function}` for the
