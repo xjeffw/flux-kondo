@@ -1,0 +1,4 @@
+(ns relay.string)
+
+(defn trim [s]
+  (trimr s))

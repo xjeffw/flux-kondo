@@ -33,7 +33,9 @@
    [clj-kondo.impl.metadata :as meta]
    [clj-kondo.impl.namespace :as namespace :refer [resolve-name]]
    [clj-kondo.impl.parser :as p]
+   [clj-kondo.impl.relay :as relay]
    [clj-kondo.impl.rewrite-clj.node.seq :as seq]
+   [clj-kondo.impl.rewrite-clj.node.string :as string-node]
    [clj-kondo.impl.rewrite-clj.node.token :as token]
    [clj-kondo.impl.rewrite-clj.reader :refer [*reader-exceptions* *reader-features*]]
    [clj-kondo.impl.schema :as schema]
@@ -803,7 +805,10 @@
                                       (assoc 'clojure.core 'clojure.core)
                                       (identical? :cljs lang)
                                       (assoc 'cljs.core 'cljs.core
-                                             'clojure.core 'cljs.core)))))]
+                                             'clojure.core 'cljs.core)))))
+        ns (if (and ns (:relay? ctx))
+             (relay/with-implicit-refers ns (:filename ctx))
+             ns)]
     (namespace/reg-namespace! ctx ns)
     (analyze-children ctx (next children))
     ns))
@@ -1251,6 +1256,9 @@
                    :macro macro?
                    :private private?
                    :deprecated deprecated
+                   :definition-symbol (when (:relay? ctx)
+                                        (relay/normalize-definition-symbol
+                                         (:definition-symbol var-meta)))
                    :defined-by defined-by
                    :defined-by->lint-as defined-by->lint-as
                    :fixed-arities (not-empty fixed-arities)
@@ -2204,13 +2212,19 @@
 (defn lint-vector-call! [ctx arg-count expr]
   (let [callstack (:callstack ctx)
         config (:config ctx)]
-    (when (not= 1 arg-count)
+    (when (if (:relay? ctx)
+            ;; an index and, optionally, a default
+            (not (<= 1 arg-count 2))
+            (not= 1 arg-count))
       (when-not (config/skip? config :invalid-arity callstack)
         (findings/reg-finding!
           ctx
           (node->line (:filename ctx) expr :invalid-arity
-                      (str "Vector can only be called with 1 arg but was called with: "
-                           arg-count)))))))
+                      (if (:relay? ctx)
+                        (str "Vector can only be called with 1 or 2 args but was called with: "
+                             arg-count)
+                        (str "Vector can only be called with 1 arg but was called with: "
+                             arg-count))))))))
 
 (defn lint-set-call! [ctx arg-count expr]
   (let [callstack (:callstack ctx)
@@ -2345,7 +2359,14 @@
 (defn analyze-catch [ctx expr]
   (let [ctx (update ctx :callstack conj [nil 'catch])
         [class-expr binding-expr & exprs] (next (:children expr))
-        _ (analyze-expression** ctx class-expr) ;; analyze usage for unused import linter
+        _ (if (:relay? ctx)
+            ;; the error type is a name Relay leaves unevaluated
+            (when-not (and (symbol? (:value class-expr)) binding-expr (seq exprs))
+              (findings/reg-finding!
+               ctx
+               (node->line (:filename ctx) expr :syntax
+                           "catch requires an error type, a binding symbol and at least one body form")))
+            (analyze-expression** ctx class-expr)) ;; analyze usage for unused import linter
         ;; catch params are not let-bound, & is allowed there
         binding (extract-bindings ctx binding-expr (last exprs) {:allow-amp true})]
     ;; a catch body only runs on an exception, so it is conditional code
@@ -3709,6 +3730,25 @@
     ;; catch-all
     (analyze-known-ns-call ctx expr children resolved-as-namespace resolved-as-name lint-as? resolved-namespace resolved-name defined-by defined-by->lint-as unresolved?)))
 
+(defn analyze-relay-deferred
+  "Relay's (after! libspec body...), whose body is evaluated once the namespace
+  of the libspec is loaded, with what the libspec requires of it, and
+  (on-reload! body...), whose body is evaluated when the file is reloaded."
+  [ctx expr form]
+  (let [[libspec & body] (cond->> (rest (:children expr))
+                           (= 'on-reload! form) (cons nil))]
+    (when (and libspec (not (:quoted ctx)))
+      (namespace-analyzer/analyze-require
+       (utils/ctx-with-linter-disabled ctx :duplicate-require)
+       (with-meta
+         (seq/list-node [(token/token-node 'require)
+                         (seq/list-node [(token/token-node 'quote) libspec])])
+         (meta expr))))
+    ;; the body is a do: forms at its top level can define vars
+    (analyze-children (update (in-branch-ctx ctx) :callstack
+                              #(cons '[clojure.core do] %))
+                      body)))
+
 (defn analyze-call
   [{:keys [top-level? base-lang lang ns config dependencies] :as ctx}
    {:keys [arg-count
@@ -3790,6 +3830,11 @@
                          [[ns n]
                           (config/lint-as config resolved-var-sym)]
                           [ns n true])
+                        ;; relay.core defines the macros and declares the
+                        ;; special forms that Relay has in common with Clojure
+                        (when (:relay? ctx)
+                          (when-let [[ns n] (relay/lint-as resolved-namespace resolved-name)]
+                            [ns n true]))
                         [resolved-namespace resolved-name false])
                     ;; See #1170, we deliberaly use resolved and not resolved-as
                     ;; Users can get :lint-as like behavior for hooks by configuring
@@ -3933,8 +3978,26 @@
                                                 (when (and resolved-as-name resolved-as-namespace)
                                                   (symbol (name resolved-as-namespace)
                                                           (name resolved-as-name))))
+                        _ (when (and (:relay? ctx)
+                                     top-level?
+                                     (not lint-as?)
+                                     (not (:in-comment ctx))
+                                     (not (:quoted ctx))
+                                     (not= 'clojure.core resolved-namespace)
+                                     (symbol? resolved-name))
+                            (when-let [candidates (:relay-definition-candidates ctx)]
+                              (when-let [candidate (relay/definition-candidate
+                                                    ctx expr
+                                                    {:resolved-ns resolved-namespace
+                                                     :name resolved-name
+                                                     :unresolved? unresolved?}
+                                                    sexpr)]
+                                (swap! candidates conj candidate))))
                         analyzed
-                        (analyze-known-call ctx expr children config ns-name lang base-lang resolved-as-clojure-var-name resolved-as-namespace resolved-as-name lint-as? resolved-namespace resolved-name top-level? defined-by defined-by->lint-as unresolved?)]
+                        (if-let [deferred (when (:relay? ctx)
+                                            (relay/deferred-form resolved-namespace resolved-name))]
+                          (analyze-relay-deferred ctx expr deferred)
+                          (analyze-known-call ctx expr children config ns-name lang base-lang resolved-as-clojure-var-name resolved-as-namespace resolved-as-name lint-as? resolved-namespace resolved-name top-level? defined-by defined-by->lint-as unresolved?))]
                     (if (= 'ns resolved-as-clojure-var-name)
                       analyzed
                       (let [in-def (:in-def ctx)
@@ -4571,7 +4634,10 @@
                         :global-config config)]
     (swap! (:used-namespaces ctx)
            update base-lang into (:used-namespaces init-ns))
-    (reduce analyze-expression* init-ctx expressions)))
+    (let [ctx (reduce analyze-expression* init-ctx expressions)]
+      (when-let [top-namespaces (:top-namespaces ctx)]
+        (swap! top-namespaces conj (:top-ns ctx)))
+      ctx)))
 
 ;;;; processing of string input
 
@@ -4648,9 +4714,7 @@
           [only-on-interop
            (str/includes? input "*warn-on-reflection*")])))))
 
-(defn analyze-input
-  "Analyzes input and returns analyzed defs, calls. Also invokes some
-  linters and returns their findings."
+(defn- analyze-input*
   [{:keys [config file-analyzed-fn total-files files] :as ctx} filename uri input lang dev?]
   (when (:debug ctx)
     (utils/stderr "[clj-kondo] Linting file:" filename))
@@ -4682,7 +4746,8 @@
                      (assoc ctx :data-readers true)
                      [:unresolved-symbol :unresolved-namespace :private-call])
                     ctx)
-              line-length-findings (lint-line-length ctx config filename input)]
+              line-length-findings (lint-line-length ctx config filename input)
+              lang (relay/analysis-lang ctx filename parsed lang)]
           (case lang
             :cljc
             (doseq [lang features]
@@ -4761,6 +4826,16 @@
             (if dev?
               (throw e)
               (run! #(findings/reg-finding! ctx %) (->findings e filename)))))))))
+
+(defn analyze-input
+  "Analyzes input and returns analyzed defs, calls. Also invokes some
+  linters and returns their findings."
+  [ctx filename uri input lang dev?]
+  (if (relay/relay-file? filename)
+    ;; Relay Lisp, see clj-kondo.impl.relay
+    (binding [string-node/*unescape* relay/unescape-string]
+      (analyze-input* (assoc ctx :relay? true) filename uri input lang dev?))
+    (analyze-input* ctx filename uri input lang dev?)))
 
 ;;;; Scratch
 

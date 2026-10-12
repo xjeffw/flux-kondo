@@ -13,10 +13,17 @@
   [lines]
   (string/join "\n" lines))
 
+(def ^:dynamic *unescape*
+  "When bound, the function that gives the value of the text of a string
+  literal, in place of Clojure's rules: Relay Lisp has its own."
+  nil)
+
 (defn- maybe-unescape
   [s]
   (if (string/includes? s "\\")
-    (edn/read-string (wrap-string s))
+    (if-let [unescape *unescape*]
+      (unescape s)
+      (edn/read-string (wrap-string s)))
     s))
 
 (defrecord StringNode [lines]

@@ -1,0 +1,10 @@
+;; The functions the runtime implements, declared as Relay generates them.
+(ns relay.builtins)
+
+(declare +)
+(declare conj!)
+(declare in-ns)
+(declare inc)
+(declare message)
+(declare str)
+(declare transient)

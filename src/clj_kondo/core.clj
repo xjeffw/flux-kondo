@@ -193,6 +193,12 @@
                  :findings findings
                  :deferred-conditions (atom [])
                  :namespaces (atom {})
+                 ;; the first namespace of each analyzed file, see
+                 ;; clj-kondo.impl.relay/merge-file-contributions
+                 :top-namespaces (atom #{})
+                 ;; calls that define a var if what they call is a macro that
+                 ;; says so, see clj-kondo.impl.relay/register-definitions
+                 :relay-definition-candidates (atom [])
                  :analysis analysis
                  :cache-dir cache-dir
                  :used-namespaces used-nss
@@ -258,9 +264,9 @@
                     (l/lint-unresolved-symbols! ctx)
                     (l/lint-unresolved-vars! ctx)
                     (l/lint-unused-imports! ctx)
-                    (l/lint-unresolved-namespaces! ctx)
+                    (l/lint-unresolved-namespaces! ctx idacs)
                     (l/lint-discouraged-namespaces! ctx)
-                    (l/lint-unused-excluded-vars! ctx)
+                    (l/lint-unused-excluded-vars! ctx idacs)
                     (l/lint-class-usage ctx idacs)
                     (l/lint-protocol-impls! ctx idacs)
                     ;; redundant ignore should go last!

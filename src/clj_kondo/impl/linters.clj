@@ -6,6 +6,7 @@
    [clj-kondo.impl.config :as config]
    [clj-kondo.impl.findings :as findings]
    [clj-kondo.impl.namespace :as namespace]
+   [clj-kondo.impl.relay :as relay]
    [clj-kondo.impl.types :as types]
    [clj-kondo.impl.types.utils :as tu]
    [clj-kondo.impl.utils :as utils :refer [constant? export-ns-sym node->line
@@ -177,7 +178,8 @@
                      (format "%s with single key" called-name)))))))
 
 (defn lint-specific-calls! [ctx call called-fn]
-  (let [called-ns (:ns called-fn)
+  (let [called-fn (relay/as-clojure-var called-fn)
+        called-ns (:ns called-fn)
         called-name (:name called-fn)
         config (:config call)
         ctx (if config (assoc ctx :config config)
@@ -240,7 +242,8 @@
 
 (defn lint-arg-types! [ctx idacs call called-fn]
   (when-let [arg-types (:arg-types call)]
-    (let [arg-types @arg-types
+    (let [called-fn (relay/as-clojure-var called-fn)
+          arg-types @arg-types
           tags (map #(tu/resolve-arg-type idacs %) arg-types)]
       (types/lint-arg-types ctx called-fn arg-types tags call)
       (when (and
@@ -402,8 +405,11 @@
 
 (defn reg-unused-value!
   [ctx call called-fn config call-config filename row end-row col end-col]
-  (when-let [idx (:idx call)]
-    (let [normalized-sym (symbol (let [cns (str (:ns called-fn))]
+  (when-let [idx (when-not (and (relay/clojure-namesake (:ns called-fn) (:name called-fn))
+                                (contains? relay/in-place-vars (:name called-fn)))
+                   (:idx call))]
+    (let [called-fn (relay/as-clojure-var called-fn)
+          normalized-sym (symbol (let [cns (str (:ns called-fn))]
                                    (if (= "cljs.core" cns) "clojure.core" cns))
                                  (str (:name called-fn)))]
       (when (contains? var-info/unused-values normalized-sym)
@@ -662,7 +668,11 @@
     (reg-private-call! ctx call called-fn caller-ns-sym fn-ns fn-sym filename row end-row col end-col)
     (reg-deprecated-var! ctx call called-fn recursive? fn-sym fn-ns fn-name caller-ns-sym in-def filename row end-row col end-col)
     (reg-redundant-fn-wrapper! ctx call called-fn filename)
-    (reg-redundant-call! ctx call called-fn call-config fn-sym filename row end-row col end-col)
+    (reg-redundant-call! ctx call called-fn call-config
+                         (if-let [n (relay/clojure-namesake resolved-ns call-fn-name)]
+                           (symbol "clojure.core" (str n))
+                           fn-sym)
+                         filename row end-row col end-col)
     (let [ctx (assoc ctx :filename filename)]
       (when call?
         (lint-specific-calls!
@@ -691,11 +701,20 @@
         end-col (:end-col call)
         ;; _ (prn :used (:used-namespaces idacs))
         #_#__ (prn (keys (:defs (:clj idacs))))
-        called-fn (utils/resolve-call idacs call call-lang
-                                      resolved-ns call-fn-name unresolved? refer-alls)
+        ;; in a Relay namespace, relay.core and relay.builtins take the place
+        ;; of clojure.core, and an unqualified name is one the namespace
+        ;; defines or refers
+        relay-unqualified? (and (:relay? caller-ns) (relay/unqualified-usage? call))
+        relay-var (when relay-unqualified?
+                    (relay/resolve-unqualified-var idacs call call-fn-name refer-alls))
+        called-fn (if relay-unqualified?
+                    (when-not (identical? :unknown relay-var) relay-var)
+                    (utils/resolve-call idacs call call-lang
+                                        resolved-ns call-fn-name unresolved? refer-alls))
         called-fn (utils/prefer-comment-def call called-fn)
-        #_#__ (when (not call?)
-                (clojure.pprint/pprint (dissoc call :config)))
+        unresolved? (if relay-unqualified?
+                      (nil? relay-var)
+                      unresolved?)
         name-meta (meta call-fn-name)
         name-row (:row name-meta)
         name-col (:col name-meta)
@@ -831,7 +850,8 @@
 (defn reg-refer-alls!
   [ctx refer-alls refer-all-excluded-config]
   (doseq [[referred-all-ns {:keys [referred node] :as refer-all}] refer-alls
-          :when (not (config/refer-all-excluded? refer-all-excluded-config referred-all-ns))]
+          :when (not (or (:implicit refer-all)
+                         (config/refer-all-excluded? refer-all-excluded-config referred-all-ns)))]
     (let [{:keys [k value]} node
           use? (or (= :use k)
                    (= 'use value))
@@ -886,7 +906,7 @@
                        :unused-alias (str "Unused alias: " alias)))))
       (lint-aliased-referred-var! ctx ns))))
 
-(defn lint-unused-excluded-vars! [ctx]
+(defn lint-unused-excluded-vars! [ctx idacs]
   (when-not (utils/linter-disabled? ctx :unused-excluded-var)
     (doseq [{:keys [clojure-excluded] :as ns} (namespace/list-namespaces ctx)
             :when (and (seq clojure-excluded)
@@ -895,7 +915,12 @@
                   used (set (concat (keys vars)
                                     (keys referred-vars)
                                     (map :name (vals referred-vars))
-                                    (map :name bindings)))
+                                    (map :name bindings)
+                                    ;; the vars that calls of defining
+                                    ;; macros define, and other files
+                                    (when (:relay? ns)
+                                      (filter symbol?
+                                              (keys (get-in idacs [:clj :defs (:name ns)]))))))
                   ctx (assoc ctx :lang lang :base-lang base-lang)]
             excluded clojure-excluded
             :when (and (not (contains? used excluded))
@@ -1124,11 +1149,14 @@
          (assoc :class (symbol (str package "." import)))))))
 
 (defn lint-unresolved-namespaces!
-  [ctx]
+  [ctx idacs]
   (let [hide-duplicates? (not (get-in ctx [:config :linters :unresolved-namespace :report-duplicates]))]
     (doseq [ns (namespace/list-namespaces ctx)
             :let [ctx (assoc ctx :lang (:lang ns) :base-lang (:base-lang ns))]
-            [_ uns] (:unresolved-namespaces ns)
+            [unresolved-ns uns] (:unresolved-namespaces ns)
+            ;; Relay resolves a qualified name in any loaded namespace
+            :when (not (and (:relay? ns)
+                            (get-in idacs [:clj :defs (with-meta unresolved-ns nil)])))
             un (cond->> uns
                  hide-duplicates? (take 1))
             :let [m (meta un)

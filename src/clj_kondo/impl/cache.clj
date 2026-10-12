@@ -1,6 +1,7 @@
 (ns clj-kondo.impl.cache
   {:no-doc true}
   (:require
+   [clj-kondo.impl.relay :as relay]
    [clj-kondo.impl.types :as types]
    [clj-kondo.impl.utils :refer [one-of]]
    [clojure.java.io :as io]
@@ -44,7 +45,10 @@
         ;; we need to check this before converting it into a nio Path, which
         ;; fails on Windows.
         (when-not (or (str/includes? filename ".jar:")
-                      (= "<stdin>" filename))
+                      (= "<stdin>" filename)
+                      ;; a cache directory was given and there is no
+                      ;; configuration directory to keep out of it
+                      (nil? config-dir))
           #_:clj-kondo/ignore
           (try (.startsWith (-> (.toPath (io/file filename))
                                 (.toAbsolutePath))
@@ -160,7 +164,8 @@
                               (update :clj resolve-types)
                               (update :cljs resolve-types))
                           (resolve-types ns-data))
-                        ns-data)]
+                        ns-data)
+]
                   ;; (when resolve? (prn ns-data))
                   (when (and cache-dir resolve?)
                     (to-cache config-dir cache-dir lang ns-nm ns-data))
@@ -187,6 +192,12 @@
                               :clj [:clj :cljc]))))
                 idacs
                 [:clj :cljs :cljc])
+        ;; Relay: a namespace of this run with what other files define of it,
+        ;; then the vars that calls of defining macros define
+        idacs (cond-> idacs
+                cache-dir (relay/merge-cached-contributions
+                           #(from-cache-1 cache-dir :clj %)))
+        idacs (relay/register-definitions idacs)
         idacs (reduce (fn [idacs lang]
                         (update-in idacs [lang :defs]
                                    (fn [defs]
