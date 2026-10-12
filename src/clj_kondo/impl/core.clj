@@ -370,7 +370,9 @@
                       {:uri (->uri nil nil nm)
                        :filename nm
                        :source (slurp file)
-                       :group-id dir}
+                       ;; a group is analyzed by one thread: one per directory
+                       ;; of sources, so that a tree of them is read in parallel
+                       :group-id (or (.getParentFile file) dir)}
                       (and (not can-read?) source?)
                       (print-err! (str nm ":0:0:") "warning: can't read, check file permissions")
                       :else nil))))))
@@ -521,6 +523,7 @@
                     (schedule ctx {:filename fn
                                    :uri (->uri nil nil fn)
                                    :source (slurp file)
+                                   :group-id file
                                    :lang (lang-from-file path default-language)}
                               @dev?)))))
             ;; assume directory
