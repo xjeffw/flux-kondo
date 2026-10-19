@@ -118,3 +118,23 @@
                              :dependencies true
                              :config [config]})
             (is (= expected (run-findings cache-dir app)) (str order))))))))
+
+(deftest private-var-of-a-continued-namespace-test
+  (testing "an unused private var is reported in the file that defines it, where an
+  ignore applies, whichever file that continues its namespace with in-ns is read last"
+    (fs/with-temp-dir [dir {}]
+      (let [config (-> config
+                       (assoc-in [:linters :unused-private-var :level] :warning)
+                       (assoc-in [:linters :redundant-ignore :level] :warning))
+            core (fs/file dir "flux" "core.flux")
+            extra (fs/file dir "flux" "builtins-extra.flux")]
+        (fs/create-dirs (fs/parent core))
+        (spit core (str "(ns flux.core)\n\n"
+                        "#_{:clj-kondo/ignore [:unused-private-var]}\n"
+                        "(defn- kept-for-the-runtime [] nil)\n\n"
+                        "(defn- unused [] nil)\n"))
+        (spit extra "(ns flux.builtins-extra)\n\n(in-ns 'flux.core)\n(def ^:special-form def nil)\n")
+        (doseq [order [[core extra] [extra core]]]
+          (assert-submaps2
+           [{:file (str core) :row 6 :col 8 :message "Unused private var flux.core/unused"}]
+           (lint! order config)))))))

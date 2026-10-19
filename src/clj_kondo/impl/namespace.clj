@@ -185,7 +185,10 @@
                          :end-col expr-end-col
                          :derived-location (:derived-location m))
          metadata (cond-> metadata
-                    (:in-comment ctx) (assoc :in-comment true))
+                    (:in-comment ctx) (assoc :in-comment true)
+                    ;; Flux: a namespace continues in other files with in-ns, so
+                    ;; its :filename is not always the file that defines the var
+                    (:flux? ctx) (assoc :defined-in filename))
          path [base-lang lang ns-sym]
          temp? (:temp metadata)
          config (:config ctx)]

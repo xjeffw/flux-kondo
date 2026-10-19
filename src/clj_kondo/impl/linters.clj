@@ -1076,7 +1076,7 @@
       (findings/reg-finding!
        ctx
        {:type :unused-private-var
-        :filename filename
+        :filename (or (:defined-in v) filename)
         :row (:name-row v)
         :col (:name-col v)
         :end-row (:name-end-row v)
