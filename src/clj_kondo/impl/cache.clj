@@ -1,7 +1,7 @@
 (ns clj-kondo.impl.cache
   {:no-doc true}
   (:require
-   [clj-kondo.impl.relay :as relay]
+   [clj-kondo.impl.flux :as flux]
    [clj-kondo.impl.types :as types]
    [clj-kondo.impl.utils :refer [one-of]]
    [clojure.java.io :as io]
@@ -192,12 +192,12 @@
                               :clj [:clj :cljc]))))
                 idacs
                 [:clj :cljs :cljc])
-        ;; Relay: a namespace of this run with what other files define of it,
+        ;; Flux: a namespace of this run with what other files define of it,
         ;; then the vars that calls of defining macros define
         idacs (cond-> idacs
-                cache-dir (relay/merge-cached-contributions
+                cache-dir (flux/merge-cached-contributions
                            #(from-cache-1 cache-dir :clj %)))
-        idacs (relay/register-definitions idacs)
+        idacs (flux/register-definitions idacs)
         idacs (reduce (fn [idacs lang]
                         (update-in idacs [lang :defs]
                                    (fn [defs]

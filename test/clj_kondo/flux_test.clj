@@ -1,6 +1,6 @@
-(ns clj-kondo.relay-test
-  "Relay Lisp, the language of `.rly` files: see clj-kondo.impl.relay. The files
-  of corpus/relay stand in for the Relay library (`lib`), a program that uses
+(ns clj-kondo.flux-test
+  "Flux Lisp, the language of `.flux` files: see clj-kondo.impl.flux. The files
+  of corpus/flux stand in for the Flux library (`lib`), a program that uses
   it (`app`) and a package (`pkg`)."
   (:require
    [babashka.fs :as fs]
@@ -19,37 +19,37 @@
              :private-call {:level :off}
              :namespace-name-mismatch {:level :error}}})
 
-(def lib (io/file "corpus" "relay" "lib"))
+(def lib (io/file "corpus" "flux" "lib"))
 
-(def app (io/file "corpus" "relay" "app" "app.rly"))
+(def app (io/file "corpus" "flux" "app" "app.flux"))
 
-(def pkg (io/file "corpus" "relay" "pkg"))
+(def pkg (io/file "corpus" "flux" "pkg"))
 
 (def app-findings
-  '({:file "corpus/relay/app/app.rly" :row 12 :col 4 :level :error
+  '({:file "corpus/flux/app/app.flux" :row 12 :col 4 :level :error
      :message "Unresolved symbol: println"}
-    {:file "corpus/relay/app/app.rly" :row 13 :col 4 :level :error
+    {:file "corpus/flux/app/app.flux" :row 13 :col 4 :level :error
      :message "Unresolved symbol: frobnicate"}
-    {:file "corpus/relay/app/app.rly" :row 14 :col 4 :level :error
+    {:file "corpus/flux/app/app.flux" :row 14 :col 4 :level :error
      :message "Unresolved symbol: private-helper"}
-    {:file "corpus/relay/app/app.rly" :row 21 :col 4 :level :warning
+    {:file "corpus/flux/app/app.flux" :row 21 :col 4 :level :warning
      :message "Unresolved namespace nowhere.ns. Are you missing a require?"}
-    {:file "corpus/relay/app/app.rly" :row 33 :col 5 :level :error
+    {:file "corpus/flux/app/app.flux" :row 33 :col 5 :level :error
      :message "catch requires an error type, a binding symbol and at least one body form"}
-    {:file "corpus/relay/app/app.rly" :row 37 :col 3 :level :error
+    {:file "corpus/flux/app/app.flux" :row 37 :col 3 :level :error
      :message "Unresolved symbol: later-state"}))
 
 (deftest library-and-program-test
-  (testing "a program resolves what it refers of relay.core and relay.builtins,
+  (testing "a program resolves what it refers of flux.core and flux.builtins,
   the vars that macros define, qualified names of loaded namespaces, and what
   forms evaluated later name; the library itself lints clean"
     (assert-submaps2 app-findings (lint! [lib app] config))))
 
 (deftest unknown-library-test
-  (testing "nothing is said about an unqualified name while relay.core and
-  relay.builtins are unknown"
+  (testing "nothing is said about an unqualified name while flux.core and
+  flux.builtins are unknown"
     (assert-submaps2
-     '({:row 19 :col 4 :message "Unresolved namespace relay.other-ns. Are you missing a require?"}
+     '({:row 19 :col 4 :message "Unresolved namespace flux.other-ns. Are you missing a require?"}
        {:row 21 :col 4 :message "Unresolved namespace nowhere.ns. Are you missing a require?"}
        {:row 33 :col 5 :message "catch requires an error type, a binding symbol and at least one body form"})
      (lint! app config))))
@@ -58,7 +58,7 @@
   (testing "the description of a package is data, and the namespace of a test
   is named after its file under test/"
     (assert-submaps2
-     '({:file "corpus/relay/pkg/test/pkg/misnamed.rly" :row 1 :col 5 :level :error
+     '({:file "corpus/flux/pkg/test/pkg/misnamed.flux" :row 1 :col 5 :level :error
         :message "Namespace name does not match file name: pkg.tests.other-name"})
      (lint! [lib pkg] config))))
 
@@ -90,9 +90,9 @@
         (is (= expected (run-findings cache-dir app))))
       (testing "linting one file of a namespace keeps what the cache has of it
   from its other files"
-        (is (empty? (run-findings cache-dir (io/file lib "relay" "string.rly"))))
-        (is (empty? (run-findings cache-dir (io/file lib "relay" "builtins-extra.rly"))))
-        (is (empty? (run-findings cache-dir (io/file lib "relay" "core.rly"))))
+        (is (empty? (run-findings cache-dir (io/file lib "flux" "string.flux"))))
+        (is (empty? (run-findings cache-dir (io/file lib "flux" "builtins-extra.flux"))))
+        (is (empty? (run-findings cache-dir (io/file lib "flux" "core.flux"))))
         (is (= expected (run-findings cache-dir app)))))))
 
 (deftest library-copies-test
@@ -105,15 +105,15 @@
                              (fs/copy-tree lib target)
                              target))
                          ["one" "two"])
-            files (fn [name] (mapv #(str (io/file % "relay" name)) copies))
+            files (fn [name] (mapv #(str (io/file % "flux" name)) copies))
             expected (map #(select-keys % [:row :col :message]) app-findings)]
-        (doseq [order [["builtins-extra.rly" "core.rly" "string.rly"]
-                       ["core.rly" "builtins-extra.rly" "string.rly"]
-                       ["core.rly" "string.rly" "builtins-extra.rly"]]]
+        (doseq [order [["builtins-extra.flux" "core.flux" "string.flux"]
+                       ["core.flux" "builtins-extra.flux" "string.flux"]
+                       ["core.flux" "string.flux" "builtins-extra.flux"]]]
           (fs/with-temp-dir [cache-dir {}]
             (clj-kondo/run! {:lint (concat (mapcat files order)
-                                           (files "builtins.rly")
-                                           (files "other-ns.rly"))
+                                           (files "builtins.flux")
+                                           (files "other-ns.flux"))
                              :cache-dir (str cache-dir)
                              :dependencies true
                              :config [config]})

@@ -194,11 +194,11 @@
                  :deferred-conditions (atom [])
                  :namespaces (atom {})
                  ;; the first namespace of each analyzed file, see
-                 ;; clj-kondo.impl.relay/merge-file-contributions
+                 ;; clj-kondo.impl.flux/merge-file-contributions
                  :top-namespaces (atom #{})
                  ;; calls that define a var if what they call is a macro that
-                 ;; says so, see clj-kondo.impl.relay/register-definitions
-                 :relay-definition-candidates (atom [])
+                 ;; says so, see clj-kondo.impl.flux/register-definitions
+                 :flux-definition-candidates (atom [])
                  :analysis analysis
                  :cache-dir cache-dir
                  :used-namespaces used-nss

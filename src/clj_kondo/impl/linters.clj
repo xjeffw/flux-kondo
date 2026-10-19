@@ -5,8 +5,8 @@
    [clj-kondo.impl.analysis :as analysis]
    [clj-kondo.impl.config :as config]
    [clj-kondo.impl.findings :as findings]
+   [clj-kondo.impl.flux :as flux]
    [clj-kondo.impl.namespace :as namespace]
-   [clj-kondo.impl.relay :as relay]
    [clj-kondo.impl.types :as types]
    [clj-kondo.impl.types.utils :as tu]
    [clj-kondo.impl.utils :as utils :refer [constant? export-ns-sym node->line
@@ -178,7 +178,7 @@
                      (format "%s with single key" called-name)))))))
 
 (defn lint-specific-calls! [ctx call called-fn]
-  (let [called-fn (relay/as-clojure-var called-fn)
+  (let [called-fn (flux/as-clojure-var called-fn)
         called-ns (:ns called-fn)
         called-name (:name called-fn)
         config (:config call)
@@ -242,7 +242,7 @@
 
 (defn lint-arg-types! [ctx idacs call called-fn]
   (when-let [arg-types (:arg-types call)]
-    (let [called-fn (relay/as-clojure-var called-fn)
+    (let [called-fn (flux/as-clojure-var called-fn)
           arg-types @arg-types
           tags (map #(tu/resolve-arg-type idacs %) arg-types)]
       (types/lint-arg-types ctx called-fn arg-types tags call)
@@ -405,10 +405,10 @@
 
 (defn reg-unused-value!
   [ctx call called-fn config call-config filename row end-row col end-col]
-  (when-let [idx (when-not (and (relay/clojure-namesake (:ns called-fn) (:name called-fn))
-                                (contains? relay/in-place-vars (:name called-fn)))
+  (when-let [idx (when-not (and (flux/clojure-namesake (:ns called-fn) (:name called-fn))
+                                (contains? flux/in-place-vars (:name called-fn)))
                    (:idx call))]
-    (let [called-fn (relay/as-clojure-var called-fn)
+    (let [called-fn (flux/as-clojure-var called-fn)
           normalized-sym (symbol (let [cns (str (:ns called-fn))]
                                    (if (= "cljs.core" cns) "clojure.core" cns))
                                  (str (:name called-fn)))]
@@ -669,7 +669,7 @@
     (reg-deprecated-var! ctx call called-fn recursive? fn-sym fn-ns fn-name caller-ns-sym in-def filename row end-row col end-col)
     (reg-redundant-fn-wrapper! ctx call called-fn filename)
     (reg-redundant-call! ctx call called-fn call-config
-                         (if-let [n (relay/clojure-namesake resolved-ns call-fn-name)]
+                         (if-let [n (flux/clojure-namesake resolved-ns call-fn-name)]
                            (symbol "clojure.core" (str n))
                            fn-sym)
                          filename row end-row col end-col)
@@ -701,19 +701,19 @@
         end-col (:end-col call)
         ;; _ (prn :used (:used-namespaces idacs))
         #_#__ (prn (keys (:defs (:clj idacs))))
-        ;; in a Relay namespace, relay.core and relay.builtins take the place
+        ;; in a Flux namespace, flux.core and flux.builtins take the place
         ;; of clojure.core, and an unqualified name is one the namespace
         ;; defines or refers
-        relay-unqualified? (and (:relay? caller-ns) (relay/unqualified-usage? call))
-        relay-var (when relay-unqualified?
-                    (relay/resolve-unqualified-var idacs call call-fn-name refer-alls))
-        called-fn (if relay-unqualified?
-                    (when-not (identical? :unknown relay-var) relay-var)
+        flux-unqualified? (and (:flux? caller-ns) (flux/unqualified-usage? call))
+        flux-var (when flux-unqualified?
+                   (flux/resolve-unqualified-var idacs call call-fn-name refer-alls))
+        called-fn (if flux-unqualified?
+                    (when-not (identical? :unknown flux-var) flux-var)
                     (utils/resolve-call idacs call call-lang
                                         resolved-ns call-fn-name unresolved? refer-alls))
         called-fn (utils/prefer-comment-def call called-fn)
-        unresolved? (if relay-unqualified?
-                      (nil? relay-var)
+        unresolved? (if flux-unqualified?
+                      (nil? flux-var)
                       unresolved?)
         name-meta (meta call-fn-name)
         name-row (:row name-meta)
@@ -918,7 +918,7 @@
                                     (map :name bindings)
                                     ;; the vars that calls of defining
                                     ;; macros define, and other files
-                                    (when (:relay? ns)
+                                    (when (:flux? ns)
                                       (filter symbol?
                                               (keys (get-in idacs [:clj :defs (:name ns)]))))))
                   ctx (assoc ctx :lang lang :base-lang base-lang)]
@@ -1154,8 +1154,8 @@
     (doseq [ns (namespace/list-namespaces ctx)
             :let [ctx (assoc ctx :lang (:lang ns) :base-lang (:base-lang ns))]
             [unresolved-ns uns] (:unresolved-namespaces ns)
-            ;; Relay resolves a qualified name in any loaded namespace
-            :when (not (and (:relay? ns)
+            ;; Flux resolves a qualified name in any loaded namespace
+            :when (not (and (:flux? ns)
                             (get-in idacs [:clj :defs (with-meta unresolved-ns nil)])))
             un (cond->> uns
                  hide-duplicates? (take 1))

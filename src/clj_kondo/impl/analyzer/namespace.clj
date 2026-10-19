@@ -10,9 +10,9 @@
    [clj-kondo.impl.config :as config]
    [clj-kondo.impl.docstring :as docstring]
    [clj-kondo.impl.findings :as findings]
+   [clj-kondo.impl.flux :as flux]
    [clj-kondo.impl.metadata :as meta]
    [clj-kondo.impl.namespace :as namespace]
-   [clj-kondo.impl.relay :as relay]
    [clj-kondo.impl.utils :as utils
     :refer [assoc-some linter-disabled? node->line one-of sexpr
             string-from-token tag token-node vector-node]]
@@ -594,8 +594,8 @@
                                     (.replace "\\" "."))
                   munged-ns (str (namespace-munge ns-name))]
               (when (and filename*
-                         (not (if (:relay? ctx)
-                                (relay/file-names-namespace? filename* ns-name)
+                         (not (if (:flux? ctx)
+                                (flux/file-names-namespace? filename* ns-name)
                                 (str/ends-with? filename* munged-ns))))
                 (when-not (some (fn [m]
                                   (and (identical? :namespace-name-mismatch (:type m))
@@ -672,9 +672,9 @@
                                          (zipmap only only))))]
             {:referred-globals refer-globals}))
         _ (when (and (seq (:clojure-excluded refer-clj))
-                     ;; a Relay namespace excludes vars of relay.core and
-                     ;; relay.builtins, which are known once the cache is read
-                     (not (:relay? ctx)))
+                     ;; a Flux namespace excludes vars of flux.core and
+                     ;; flux.builtins, which are known once the cache is read
+                     (not (:flux? ctx)))
             (lint-refer-clojure-vars ctx (:clojure-excluded refer-clj)))
         gen-class? (some #(= :gen-class (some-> % :children first :k)) clauses)
         leftovers (for [clause clauses
@@ -703,7 +703,7 @@
              (identical? :cljs lang) (update :qualify-ns
                                              #(assoc % 'cljs.core 'cljs.core
                                                      'clojure.core 'cljs.core))
-             (:relay? ctx) (relay/with-implicit-refers filename))]
+             (:flux? ctx) (flux/with-implicit-refers filename))]
     (when (:analysis ctx)
       (doseq [[k v] imports]
         (java/reg-class-usage! ctx (str v "." k) nil (assoc (meta k) :import true)))

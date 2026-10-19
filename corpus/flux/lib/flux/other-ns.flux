@@ -1,4 +1,4 @@
-(ns relay.other-ns)
+(ns flux.other-ns)
 
 (defn other-fn [x]
   x)

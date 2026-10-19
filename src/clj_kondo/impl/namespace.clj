@@ -6,7 +6,7 @@
    [clj-kondo.impl.analysis.java :as java]
    [clj-kondo.impl.config :as config]
    [clj-kondo.impl.findings :as findings]
-   [clj-kondo.impl.relay :as relay]
+   [clj-kondo.impl.flux :as flux]
    [clj-kondo.impl.utils :as utils
     :refer [deep-merge export-ns-sym linter-disabled? node->line one-of get-in]]
    [clj-kondo.impl.var-info :as var-info]
@@ -132,10 +132,10 @@
                                          (not (:synthetic-init prev))
                                          (:filename prev)
                                          (not= (:filename prev) new-filename))
-                                  (if (:relay? prev)
-                                    ;; Relay: what other files define of the
+                                  (if (:flux? prev)
+                                    ;; Flux: what other files define of the
                                     ;; namespace with in-ns is not reset
-                                    (relay/forget-declared-vars prev)
+                                    (flux/forget-declared-vars prev)
                                     (-> prev
                                         (assoc :vars nil)
                                         (dissoc :var-counts)))
@@ -256,8 +256,8 @@
                  hard-def? (and (not (:declared metadata))
                                 (not (:in-comment metadata)))]
              (when (and (identical? :clj lang)
-                        ;; a Relay var is not compiled to a class file
-                        (not (:relay? ctx)))
+                        ;; a Flux var is not compiled to a class file
+                        (not (:flux? ctx)))
                (when-let [clashing-vars (->> (get classfiles classfile)
                                              (remove #{var-sym})
                                              (seq))]
@@ -270,9 +270,9 @@
              ;; declare is idempotent
              ;; (prn (:callstack ctx))
              (when (and top-level? hard-def?
-                        ;; Relay: a form that is evaluated later, as the body
+                        ;; Flux: a form that is evaluated later, as the body
                         ;; of after! is, replaces a definition on purpose
-                        (not (and (:relay? ctx) (relay/deferred-usage? ctx))))
+                        (not (and (:flux? ctx) (flux/deferred-usage? ctx))))
                (when-not (= 'clojure.core/definterface (:defined-by metadata))
                  (when-let [redefined-ns
                             (or (when-let [meta-v prev-var]
@@ -287,9 +287,9 @@
                                                 :clj 'clojure.core
                                                 :cljs 'cljs.core)]
                                   (when (and (not= ns-sym core-ns)
-                                             ;; a Relay namespace refers relay.core
-                                             ;; and relay.builtins in its place
-                                             (not (:relay? ctx))
+                                             ;; a Flux namespace refers flux.core
+                                             ;; and flux.builtins in its place
+                                             (not (:flux? ctx))
                                              (not (contains? (:clojure-excluded ns) var-sym))
                                              (var-info/core-sym? lang var-sym))
                                     core-ns)))]
@@ -546,9 +546,9 @@
                                          ;; we must include the filename here
                                          ;; see #73
                                          assoc :filename filename)]
-            ;; Relay resolves a qualified name in any loaded namespace: read
+            ;; Flux resolves a qualified name in any loaded namespace: read
             ;; this one from the cache to tell whether it is one
-            (when (and (:relay? ctx) (:used-namespaces ctx))
+            (when (and (:flux? ctx) (:used-namespaces ctx))
               (swap! (:used-namespaces ctx) update base-lang conj
                      (with-meta unresolved-ns nil)))
             (swap! namespaces update-in [base-lang lang ns-sym :unresolved-namespaces unresolved-ns]
@@ -939,7 +939,7 @@
                         (reg-used-alias! ctx ns-name name-sym)
                         {:ns ns*
                          :name name-sym}))
-                    (let [referred-all-ns (or (relay/implicit-refer-ns ns name-sym)
+                    (let [referred-all-ns (or (flux/implicit-refer-ns ns name-sym)
                                               (some (fn [[k {:keys [excluded]}]]
                                                       (when-not (contains? excluded name-sym)
                                                         k))

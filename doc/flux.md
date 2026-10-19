@@ -1,25 +1,25 @@
-# Relay Lisp
+# Flux Lisp
 
-rly-kondo lints Relay Lisp, the language of the [Relay](https://github.com/xjeffw/relay) editor,
-in files named `*.rly`. Relay Lisp is based on Clojure, and such a file is analyzed as Clojure
-except for what follows. `src/clj_kondo/impl/relay.clj` implements it, and
-`test/clj_kondo/relay_test.clj` with the files of `corpus/relay` tests it. Files of other
+flux-kondo lints Flux Lisp, the language of the [Flux](https://github.com/xjeffw/flux) editor,
+in files named `*.flux`. Flux Lisp is based on Clojure, and such a file is analyzed as Clojure
+except for what follows. `src/clj_kondo/impl/flux.clj` implements it, and
+`test/clj_kondo/flux_test.clj` with the files of `corpus/flux` tests it. Files of other
 languages are linted as clj-kondo lints them.
 
-## What a Relay file is linted as
+## What a Flux file is linted as
 
-- **Implicit refers.** Every namespace refers the public vars of `relay.core` and
-  `relay.builtins`, as if by `(:use relay.core relay.builtins)`, minus the names its
+- **Implicit refers.** Every namespace refers the public vars of `flux.core` and
+  `flux.builtins`, as if by `(:use flux.core flux.builtins)`, minus the names its
   `:refer-clojure` clause excludes. The two namespaces take the place of `clojure.core`: an
   unqualified name is a var of the namespace, of one it refers, or it is unresolved. A name
-  that only Clojure has, such as `println`, is unresolved. Relay declares its special forms as
-  vars of `relay.core`, so they are found the same way. A var the two namespaces have in common
-  with `clojure.core` is analyzed as the Clojure one, and its arity is the one its Relay
+  that only Clojure has, such as `println`, is unresolved. Flux declares its special forms as
+  vars of `flux.core`, so they are found the same way. A var the two namespaces have in common
+  with `clojure.core` is analyzed as the Clojure one, and its arity is the one its Flux
   definition has.
-- **Unknown library.** While `relay.core` or `relay.builtins` has not been linted, in this run
+- **Unknown library.** While `flux.core` or `flux.builtins` has not been linted, in this run
   or in one that cached it, nothing is reported about an unqualified name.
 - **Qualified names.** A qualified name resolves in any namespace that has been linted, whether
-  the file requires it or not, as Relay resolves it in any loaded namespace.
+  the file requires it or not, as Flux resolves it in any loaded namespace.
 - **Namespaces in several files.** A namespace can be continued in another file with `in-ns`,
   as the generated declarations of the builtins continue the namespaces that Lisp files define.
   The cache keeps what each file contributes: linting one file replaces its part alone. A file
@@ -40,12 +40,12 @@ languages are linted as clj-kondo lints them.
 - **Smaller differences.** `^:private` does not keep another namespace from a var. A string
   keeps an escape the reader does not know. A vector takes an index and a default. `conj!` and
   its like change their collection in place, so their value can go unused. A file is named
-  after its namespace as written, and a package keeps `P.tests.X` in `test/P/X.rly`. A
-  `package.rly` that holds one map is data.
+  after its namespace as written, and a package keeps `P.tests.X` in `test/P/X.flux`. A
+  `package.flux` that holds one map is data.
 
 ## Configuration
 
 Configuration is clj-kondo's, in `.clj-kondo/config.edn`. In addition, the directory that the
-environment variable `RLY_KONDO_LIBRARY_CONFIG_DIR` names is read as a configuration directory
-before the project's, which can therefore change what it says. The Relay language server sets
-it to the directory of the Relay library that holds the hooks for the library's macros.
+environment variable `FLUX_KONDO_LIBRARY_CONFIG_DIR` names is read as a configuration directory
+before the project's, which can therefore change what it says. The Flux language server sets
+it to the directory of the Flux library that holds the hooks for the library's macros.

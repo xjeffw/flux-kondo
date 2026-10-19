@@ -1,4 +1,4 @@
-(ns relay.core)
+(ns flux.core)
 
 (defmacro ^{:definition-symbol {:path [0] :type :variable}} defstate [var value]
   `(defonce ~var ~value))
